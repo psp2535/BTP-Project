@@ -1,0 +1,5 @@
+Fleet Size,Total Inference Time (s),Per-Vehicle Latency (s)
+50,30.53,0.611
+100,60.97,0.61
+200,121.86,0.609
+300,181.42,0.605

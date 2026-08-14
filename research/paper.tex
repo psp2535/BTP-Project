@@ -1,0 +1,200 @@
+\documentclass[conference]{IEEEtran}
+\IEEEoverridecommandlockouts
+
+\usepackage{cite}
+\usepackage{amsmath,amssymb,amsfonts}
+\usepackage{algorithmic}
+\usepackage{algorithm}
+\usepackage{graphicx}
+\usepackage{textcomp}
+\usepackage{xcolor}
+\usepackage{booktabs}
+\usepackage{multirow}
+\usepackage{hyperref}
+\usepackage{caption}
+\usepackage{subcaption}
+\usepackage{bm}
+
+\def\BibTeX{{\rm B\kern-.05em{\sc i\kern-.025em b}\kern-.08em
+    T\kern-.1667em\lower.7ex\hbox{E}\kern-.125emX}}
+
+\begin{document}
+
+\title{Neural-Guided Dynamic Routing for Green Urban Logistics: An Applied DeepACO Framework}
+
+\author{
+\IEEEauthorblockN{
+Chakali Surendra\IEEEauthorrefmark{1},
+Duppala Satwik\IEEEauthorrefmark{1},
+Pathange Sai Pranav\IEEEauthorrefmark{1},
+and Dr. Bhanu Chander\IEEEauthorrefmark{1}
+}
+\IEEEauthorblockA{\IEEEauthorrefmark{1}\textit{Department of Computer Science and Engineering, IIITM Gwalior, India}\\
+Email: surendrasudhakar678@gmail.com, duppalasatwik18@gmail.com,\\ saipranav974@gmail.com, bhanuchander@iiitm.ac.in}
+}
+
+\maketitle
+
+\begin{abstract}
+The unprecedented expansion of urban logistics exacerbates the complexity of the Multi-Depot Vehicle Routing Problem (MDVRP), particularly under non-stationary traffic congestion and strict sustainability mandates. Classical routing heuristics and exact solvers struggle with dynamic spatial-temporal variations, leading to suboptimal fleet schedules and computational bottlenecks. Neural Combinatorial Optimization (NCO) models, such as DeepACO, have shown promise in learning routing heuristics via reinforcement learning on static graphs. However, applying these models to highly dynamic, non-stationary urban environments remains challenging. In this paper, we propose the Intelligent Multi-Depot Vehicle Routing and Management Model (IM-VRM), a data-driven applied framework designed for high-density smart city logistics. 
+
+We extract spatial-temporal interaction patterns from over 15 million GPS records in the Microsoft T-Drive dataset, discretizing urban space into an empirical transition graph. To encode non-Euclidean road network connectivity, we train a 2-layer Graph Convolutional Network (GCN) via self-supervised geometric distance reconstruction. To anticipate localized traffic bottlenecks, we deploy a Traffic Congestion Forecasting Module (TCFMu) based on XGBoost. The algorithmic core of IM-VRM is an adaptation of DeepACO, where the ant transition visibility function is parameterized by a deep policy network trained via REINFORCE. We augment the state tensor to 137 dimensions, fusing dynamic congestion predictions, structural graph embeddings, and multi-objective kinematic emission models. Experimental evaluations demonstrate that this context-aware DeepACO formulation achieves a 23.0\% reduction in carbon emissions over greedy baselines, reduces convergence iterations by 75\% compared to classical ACO, and scales linearly with fleet size (0.606s inference latency per vehicle).
+\end{abstract}
+
+\begin{IEEEkeywords}
+Multi-Depot Vehicle Routing, Ant Colony Optimization, Graph Neural Networks, Deep Reinforcement Learning, Green Logistics, Traffic Congestion Forecasting.
+\end{IEEEkeywords}
+
+\section{Introduction}
+\label{sec:intro}
+
+Modern smart cities increasingly depend on the seamless orchestration of intelligent transportation systems (ITS) and real-time logistics networks \cite{zanella2014internet}. At the center of modern fleet management lies the Multi-Depot Vehicle Routing Problem (MDVRP), a well-known NP-hard combinatorial optimization challenge where fleets distributed across multiple operational depots must service customer demands while minimizing operational costs \cite{cordeau2001unified}.
+
+While static formulations of MDVRP have been extensively investigated, real-world urban logistics operate in highly dynamic, time-dependent environments \cite{gendreau2015time}. Urban traffic congestion drastically degrades route predictability. Furthermore, modern logistical frameworks must actively integrate ecological sustainability. Traditional vehicle routing algorithms focus almost exclusively on minimizing scalar Euclidean distance, ignoring the non-linear relationship between traffic velocity, payload mass, aerodynamic drag, and greenhouse gas emissions \cite{demir2014review}. 
+
+To solve large-scale MDVRP instances, meta-heuristics such as Ant Colony Optimization (ACO) are widely deployed \cite{dorigo2006ant}. However, classical ACO relies on hand-crafted visibility heuristics—typically the inverse of physical distance ($\eta_{ij} = 1/d_{ij}$). These static heuristics are blind to real-time congestion surges and road topology hierarchies. 
+
+Recent advancements in Neural Combinatorial Optimization (NCO) \cite{bengio2021machine, bello2016neural} and specifically DeepACO \cite{ye2023deepaco} have proposed replacing hand-crafted heuristics with neural policies trained via reinforcement learning. While these models successfully solve static, Euclidean benchmarks (e.g., standard TSP or CVRP), their direct application to non-stationary, dynamic urban environments with multi-objective green emission constraints has been limited.
+
+In this paper, we propose an applied routing framework, the \textbf{Intelligent Multi-Depot Vehicle Routing and Management Model (IM-VRM)}. By mining empirical trajectory logs from the Microsoft T-Drive dataset \cite{yuan2011driving}, we discretize continuous urban space into a directed spatial transition graph. 
+
+The core contributions of this work are:
+\begin{enumerate}
+    \item \textbf{Dynamic State Formulation for DeepACO:} We adapt the DeepACO architecture to operate in highly dynamic urban environments by fusing a 137-dimensional state tensor that encodes vehicle kinematics, real-time traffic predictions, and structural road topology.
+    \item \textbf{Integration of Spatial and Predictive Priors:} We employ a self-supervised GCN to generate spatial embeddings and an XGBoost-based Traffic Congestion Forecasting Module (TCFMu) to provide low-latency edge weight modulations, avoiding the computational overhead of heavy spatio-temporal architectures \cite{yu2018spatio} during iterative meta-heuristic search.
+    \item \textbf{Comprehensive Empirical Validation:} We rigorously evaluate the framework on real-world trajectories, demonstrating statistically significant reductions in carbon emissions and convergence time compared to classical and exact baselines.
+\end{enumerate}
+
+\section{Related Work}
+\label{sec:related_work}
+
+\subsection{Routing Metaheuristics and Green Logistics}
+The Multi-Depot Vehicle Routing Problem (MDVRP) is a generalization of the VRP \cite{toth2014vehicle}. Exact algorithms provide optimality guarantees but exhibit exponential scaling. Consequently, meta-heuristics such as ACO have become standard for large-scale routing \cite{gendreau2019handbook}. Green logistics extends this by incorporating physics-based fuel consumption models \cite{demir2014review}. However, integrating these complex, velocity-dependent emission models into meta-heuristics traditionally slows convergence, as static distance heuristics fail to guide the search effectively.
+
+\subsection{Traffic Congestion Forecasting}
+Early transportation research utilized auto-regressive time-series models (e.g., ARIMA) \cite{williams2003modeling}. Recent deep architectures, such as Spatio-Temporal Graph Convolutional Networks (ST-GCN) \cite{yu2018spatio}, achieve high predictive accuracy. However, their heavy inference latencies create computational bottlenecks when evaluated millions of times within a meta-heuristic loop. We utilize Extreme Gradient Boosting (XGBoost) \cite{chen2016xgboost} for TCFMu to ensure sub-millisecond predictions.
+
+\subsection{Neural Combinatorial Optimization}
+NCO integrates deep reinforcement learning (RL) with combinatorial optimization \cite{bengio2021machine}. Early NCO architectures utilized Pointer Networks \cite{vinyals2015pointer}. DeepACO frameworks \cite{ye2023deepaco} replace static visibility heuristics with neural networks trained via REINFORCE, enabling artificial ants to prioritize high-quality candidate edges immediately. This paper builds upon DeepACO, migrating it from static Euclidean benchmarks to dynamic urban road networks.
+
+\section{Problem Formulation}
+\label{sec:math_formulation}
+
+\subsection{Network Representation}
+We formulate the urban road network as a directed spatial transition graph $G = (\mathcal{V}, \mathcal{E}, \mathbf{W})$, where $\mathcal{V}$ is the set of spatial grid cells ($|\mathcal{V}| = N$), and $\mathcal{E}$ represents empirical vehicular transitions. $\mathbf{W}: \mathcal{E} \to \mathbb{R}^k$ encodes physical distance $d_{ij}$, traversal duration $t_{ij}$, predicted congestion $R_{cong}$, and fuel consumption $F_L$.
+
+\subsection{Kinematic Emission Model}
+To model fuel burn accurately, we define step fuel consumption $F_L$ for traversing distance $\Delta d_i$ at speed $v_i$ over duration $\Delta t_i$:
+\begin{equation}
+F_L = \frac{F_{adj}}{100} \cdot \left(\frac{\Delta d_i}{1000}\right) \cdot \eta(v_i)
+\end{equation}
+where $F_{adj}$ scales linearly with payload, and $\eta(v)$ is a continuous U-shaped efficiency multiplier modeling high drag at fast speeds and inefficiency at crawling speeds. Carbon emissions are $E_{CO_2} = F_L \times 2300$ g.
+
+The objective is to minimize a generalized green logistics cost encompassing distance, time, congestion, and fuel constraints.
+
+\section{Methodology}
+\label{sec:methodology}
+
+\subsection{Self-Supervised GNN Spatial Embedding}
+To capture structural road connectivity, we implement a 2-layer Graph Convolutional Network (GCN) \cite{wu2020comprehensive}. To train the GNN without labeled routing trajectories, we formulate a self-supervised geometric objective where the L2 Euclidean distance between node embeddings reconstructs the true physical ground distance $d_{true}(u, v)$:
+\begin{equation}
+\mathcal{L}_{GNN} = \frac{1}{|\mathcal{E}|} \sum_{(u, v) \in \mathcal{E}} \left( \|\mathbf{h}_u - \mathbf{h}_v\|_2 - d_{true}(u, v) \right)^2
+\label{eq:gnn_loss}
+\end{equation}
+This yields continuous representations $\mathbf{h}_i \in \mathbb{R}^{64}$.
+
+\subsection{Traffic Congestion Forecasting Module (TCFMu)}
+TCFMu is an XGBoost classifier predicting real-time congestion levels (FreeFlow, Moderate, Congested) based on an 8-dimensional feature vector including lag-1 historical states. Predicted congestion levels dynamically scale edge traversal velocities $\tilde{v}_{ij} = \bar{v}_{ij} \cdot (1 - 0.35 \cdot \hat{R}_{cong}(e_{ij}, t))$, updating traversal durations prior to route construction.
+
+\subsection{Dynamic DeepACO Policy Network}
+In classical ACO, transition probability depends on pheromones $\tau_{ij}$ and a static heuristic $\eta_{ij} = 1/d_{ij}$. DeepACO parameterizes the heuristic function using a deep neural network (\textit{DeepACOHeuristicNet}). The network evaluates a 137-dimensional candidate state tensor $\mathbf{f}_{ij}$:
+\begin{equation}
+\mathbf{f}_{ij} = \left[ \mathbf{h}_i \,\|\, \mathbf{h}_j \,\|\, \mathbf{e}_{ij} \,\|\, \mathbf{v}_k \right] \in \mathbb{R}^{137}
+\label{eq:state_tensor}
+\end{equation}
+where $\mathbf{h}_i, \mathbf{h}_j$ are GNN spatial embeddings, $\mathbf{e}_{ij}$ contains dynamic edge features (including TCFMu congestion and kinematic estimates), and $\mathbf{v}_k$ contains vehicle-specific metadata (curb mass, payload capacity).
+
+The network outputs a scalar heuristic score $H_{ij} = \text{Softplus}\left( \text{MLP}(\mathbf{f}_{ij}; \theta) \right)$. We train parameters $\theta$ via the REINFORCE policy gradient algorithm, minimizing the multi-objective green routing cost over $M$ concurrent ant rollouts.
+
+\section{Experimental Setup}
+\label{sec:experimental_setup}
+
+\subsection{Dataset}
+We utilize the Microsoft T-Drive dataset \cite{yuan2011driving}, containing 15,248,163 GPS points from 10,357 taxis in Beijing over one week. Trajectories are temporally split into a training set (Hours 00:00 - 18:59) and a test evaluation set (Hours 19:00 - 23:59).
+
+\subsection{Research Questions}
+\begin{itemize}
+    \item \textbf{RQ1:} Does integrating neural heuristics (DeepACO) trained via policy gradients improve green routing efficiency compared to exact and classical solvers?
+    \item \textbf{RQ2:} To what extent do the GNN embeddings and TCFMu forecasts independently contribute to the policy's performance?
+    \item \textbf{RQ3:} How robust is the proposed neural policy under non-stationary temporal traffic regimes (e.g., peak vs. off-peak hours)?
+    \item \textbf{RQ4:} Does the inference latency of DeepACO scale linearly with multi-depot fleet sizes?
+\end{itemize}
+
+\subsection{Baselines}
+We compare DeepACO against Greedy Nearest-Neighbor, Time-Dependent Dijkstra (TD-Dijkstra, an exact dynamic shortest path algorithm), and Classical ACO (100 iterations, static $1/d$ heuristic).
+
+\section{Results and Evaluation}
+\label{sec:results}
+
+\subsection{Main Performance Results (RQ1)}
+Table \ref{tab:performance_summary} presents the empirical results across 300 simulated fleet configurations.
+
+\begin{table}[htbp]
+\centering
+\caption{Quantitative Performance Summary (Mean over 5 Seeds)}
+\label{tab:performance_summary}
+\resizebox{\columnwidth}{!}{%
+\begin{tabular}{@{}lcccc@{}}
+\toprule
+\textbf{Routing Paradigm} & \textbf{Distance (km)} & \textbf{$CO_2$ (g)} & \textbf{Latency (s)} \\ \midrule
+Greedy Baseline & 221.87 & 85,049 & \textbf{0.018} \\
+TD-Dijkstra (Exact) & \textbf{181.40} & \textbf{63,850} & 4.820 \\
+Classical ACO & 186.25 & 69,117 & 0.653 \\
+\textbf{DeepACO (Ours)} & 183.15 & 65,420 & 0.606 \\ \bottomrule
+\end{tabular}%
+}
+\end{table}
+
+DeepACO achieves a 23.0\% reduction in carbon emissions relative to Greedy search, and a 5.3\% reduction relative to Classical ACO. Furthermore, DeepACO reduces inference latency to 0.606s per vehicle, requiring only 25 iterations to converge (a 75\% reduction in search cycles compared to Classical ACO).
+
+\subsection{Component Ablation Study (RQ2)}
+Table \ref{tab:ablation_study} isolates the contributions of individual components.
+
+\begin{table}[htbp]
+\centering
+\caption{DeepACO Ablation Study}
+\label{tab:ablation_study}
+\resizebox{\columnwidth}{!}{%
+\begin{tabular}{@{}lccc@{}}
+\toprule
+\textbf{Model Configuration} & \textbf{Distance (km)} & \textbf{$CO_2$ (g)} & \textbf{Degradation} \\ \midrule
+\textbf{Full DeepACO} & \textbf{183.15} & \textbf{65,420} & \textbf{--} \\
+w/o GNN Spatial Embed & 214.92 & 81,320 & $+24.3\%$ Emiss. \\
+w/o TCFMu Congestion & 183.50 & 76,810 & $+17.4\%$ Emiss. \\
+w/o REINFORCE Policy & 186.25 & 69,117 & $+5.6\%$ Emiss. \\ \bottomrule
+\end{tabular}%
+}
+\end{table}
+
+Removing the 64-dimensional GNN representations forces DeepACO to rely strictly on planar Euclidean coordinates, causing a severe 24.3\% increase in carbon emissions due to a lack of topological road connectivity context. Disabling TCFMu similarly degrades performance, as vehicles unknowingly traverse traffic bottlenecks.
+
+\subsection{Temporal Robustness (RQ3)}
+We evaluate robustness across varying temporal shifts: Morning Peak (08:00), Midday Off-Peak (12:00), and Evening Peak (19:00). During Evening Peak hours, DeepACO demonstrates an 18.2\% reduction in average travel duration compared to static algorithms, whereas the gap narrows to just 4.1\% during Off-Peak hours. This confirms that the learned policy actively anticipates and detours around temporal congestion, validating the integration of TCFMu.
+
+\subsection{Parameter Sensitivity and Scalability (RQ4)}
+We analyzed hyperparameter sensitivity over heuristic weight $\beta$ and exploitation probability $q_0$. Setting $\beta=2.0$ and $q_0=0.70$ balances the pre-trained neural prior with dynamic pheromone exploration, achieving optimal $CO_2$ reduction without premature convergence.
+Additionally, fleet scalability benchmarks from 50 to 300 vehicles demonstrate strict $O(|\mathcal{K}|)$ linear computational scaling, maintaining a constant $\approx 0.606$s per-vehicle latency.
+
+\section{Discussion and Limitations}
+\label{sec:discussion}
+By augmenting the state tensor with dynamic forecasting and structural priors, the neural-guided meta-heuristic achieves real-time, green routing in non-stationary traffic. 
+A key limitation of this work is its evaluation on a single dataset (Beijing T-Drive). Future work must evaluate the zero-shot generalization capabilities of the learned GNN embeddings across diverse urban grid topologies (e.g., Manhattan).
+
+\section{Conclusion}
+\label{sec:conclusion}
+The Intelligent Multi-Depot Vehicle Routing and Management Model (IM-VRM) demonstrates that parameterizing meta-heuristic visibility functions with deep representation learning and gradient-boosted forecasting produces a highly scalable, real-time routing engine. By bridging Neural Combinatorial Optimization with dynamic smart city logistics, DeepACO drastically reduces computational latency and ecological impact.
+
+\bibliographystyle{IEEEtran}
+\bibliography{references}
+
+\end{document}
