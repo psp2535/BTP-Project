@@ -1,144 +1,171 @@
 # GNN-Enhanced ACO for Dynamic and Green Multi-Depot Vehicle Routing in Smart Cities
 
-This repository contains a modular, lightweight Python project structure for reproducing the baseline preprocessing pipeline of the **IM-VRM** (*Intelligent Multi-Depot Vehicle Routing and Management*) model using the Microsoft **T-Drive** taxi trajectory dataset.
+**DeepACO-Enhanced IM-VRM** — a data-driven routing framework that plans multi-depot delivery routes around predicted traffic congestion while minimising fuel use and CO₂ emissions. Built on 15M+ real GPS points from 10,357 Beijing taxis (Microsoft T-Drive).
 
-The IM-VRM framework was introduced in:
-> *"An Intelligent Multi-Depot Vehicle Routing and Management Model for Smart Cities,"*  
-> **IEEE Transactions on Intelligent Transportation Systems** (Volume 26, Issue 6, June 2025).
+B.Tech Project · **ABV-IIITM Gwalior** · Supervised by **Dr. Bhanu Chander**
+
+🌐 **Live demo:** [fleetmaster-api.vercel.app](https://fleetmaster-api.vercel.app/) — interactive web app (code in [td-dijkstra-aco-router](https://github.com/psp2535/td-dijkstra-aco-router))
 
 ---
 
-## 📖 Theoretical Primitives
+## 👥 Team
 
-This phase implements the exact data cleaning, kinematic modeling, trip segmentation, spatial binned congestion profiling, grid transition graph construction, and fleet metadata creation required for the routing model.
+| | Name | GitHub | LinkedIn |
+|:-:|---|---|---|
+| <img src="https://github.com/psp2535.png?size=80" width="60" /> | **Pathange Sai Pranav** | [@psp2535](https://github.com/psp2535) | [pathangesaipranav](https://www.linkedin.com/in/pathangesaipranav/) |
+| <img src="https://github.com/suri5790.png?size=80" width="60" /> | **Chakali Surendra** | [@suri5790](https://github.com/suri5790) | [surendrachakali](https://www.linkedin.com/in/surendrachakali/) |
+| <img src="https://github.com/Satwik2529.png?size=80" width="60" /> | **Duppala Satwik** | [@Satwik2529](https://github.com/Satwik2529) | [satwik2529dsk](https://www.linkedin.com/in/satwik2529dsk/) |
 
-### 1. Geospatial & Kinematic Calculations
-For consecutive GPS logs $P_1(\text{lat}_1, \text{lon}_1)$ and $P_2(\text{lat}_2, \text{lon}_2)$ recorded at times $t_1$ and $t_2$:
-*   **Geodetic Distance ($\Delta d$):** Calculated using the Haversine formula:
-    $$a = \sin^2\left(\frac{\Delta \text{lat}}{2}\right) + \cos(\text{lat}_1)\cos(\text{lat}_2)\sin^2\left(\frac{\Delta \text{lon}}{2}\right)$$
-    $$\Delta d = 2 R \arcsin(\sqrt{a})$$
-    where $R = 6,371,000\text{ meters}$.
-*   **Velocity ($v$):** Computed as $v = \Delta d / \Delta t$, where $\Delta t = t_2 - t_1$. If $v > v_{\text{limit}}$ (e.g., 120 km/h), the destination point is filtered out as a GPS anomaly.
-*   **Acceleration ($a$):** Computed as $a = \frac{v_2 - v_1}{\Delta t}$.
+**Supervisor:** Dr. Bhanu Chander, ABV-IIITM Gwalior
 
-### 2. Green Emission & Fuel Estimation
-To model ecological routing costs, we implement a physics-based load-dependent fuel consumption model:
-*   **Payload Correction:** 
-    $$F_{\text{adj}} = F_{\text{base}} \times \left(1 + \lambda_{\text{load}} \times \frac{\text{Payload}_{\text{kg}}}{100}\right)$$
-    where $F_{\text{base}}$ is the base fuel rate (L/100km) and $\lambda_{\text{load}}$ is the load penalty factor.
-*   **Speed Efficiency Curve:** Vehicles consume fuel less efficiently in stop-and-go conditions or at extreme speeds due to aerodynamic drag. We scale consumption by a U-shaped efficiency multiplier $\eta(v)$:
-    *   $\eta(v) = 2.0$ for $v < 10\text{ km/h}$ (crawl/congestion)
-    *   $\eta(v) = 1.4$ for $10 \le v < 30\text{ km/h}$ (city traffic)
-    *   $\eta(v) = 1.0$ for $30 \le v < 60\text{ km/h}$ (optimum cruise range)
-    *   $\eta(v) = 1.25$ for $60 \le v < 90\text{ km/h}$ (highway speed)
-    *   $\eta(v) = 1.6$ for $v \ge 90\text{ km/h}$ (drag-dominated)
-*   **Step Consumption (L):** $\text{Fuel} = \frac{F_{\text{adj}}}{100} \times \left(\frac{\Delta d}{1000}\right) \times \eta(v)$ (with idle consumption applied when $v \approx 0$).
-*   **Carbon Emissions (g):** $\text{CO}_2 = \text{Fuel} \times \text{CO}_{2,\text{per\_liter}}$.
+---
 
-### 3. Spatial Grid Congestion Labeling
-Beijing is binned into an $N \times M$ grid.
-*   **Free Flow Speed ($V_{\text{ff}}$):** Defined per grid cell as the 90th percentile of all speeds observed in that cell.
-*   **Congestion Ratio ($R_{\text{cong}}$):** For any hour of the day $h$, the ratio is $R_{\text{cong}} = V_{\text{avg}}(h) / V_{\text{ff}}$.
-*   **Discrete Levels:**
-    *   **Level 0 (FreeFlow):** $R_{\text{cong}} \ge 0.7$
-    *   **Level 1 (Moderate):** $0.4 \le R_{\text{cong}} < 0.7$
-    *   **Level 2 (Congested):** $R_{\text{cong}} < 0.4$
+## 📌 Overview
 
-### 4. Grid Transition Graph
-Nodes correspond to visited grid cells $(r, c)$. A directed edge is created from $(r_1, c_1) \to (r_2, c_2)$ if a taxi actually transitions between the two cells in consecutive time steps. Edges are weighted by transition counts and average transition speeds.
+Classical routing heuristics such as Ant Colony Optimization (ACO) steer by static distance (`1/d`), so they cannot see traffic building up and produce slow, fuel-hungry routes. This project extends the **IM-VRM** model (*IEEE T-ITS, Vol. 26, Issue 6, June 2025*) with three learned components:
+
+| Module | What it does | Model |
+|---|---|---|
+| **GNN Spatial Embedder** | Learns 64-dim embeddings of Beijing's road-transition graph, capturing multi-hop connectivity rather than straight-line distance | 2-layer GCN, self-supervised distance-reconstruction loss |
+| **TCFMu** (Traffic Congestion Forecasting) | Predicts the congestion level (FreeFlow / Moderate / Congested) of each grid cell per hour | XGBoost classifier — **91.4% accuracy**, macro-F1 0.892 |
+| **DeepACO** | Replaces ACO's hand-made `1/d` heuristic with a neural policy scoring each move from a 137-dim state (GNN embeddings + edge traffic/fuel features + vehicle profile) | MLP trained with REINFORCE policy gradients |
+
+Routes are optimised for a **green logistics cost** combining distance, travel time, congestion, and a load- and speed-dependent fuel/CO₂ model.
+
+![IM-VRM system architecture](im_vrm_master_system_architecture.png)
+
+---
+
+## 📊 Results
+
+Evaluated on 300-taxi fleet configurations across Beijing, mean ± std over 5 random seeds (from the project paper, `IM-VRM_Paper.tex`):
+
+| Algorithm | Distance (km) | Duration (s) | Fuel (L) | CO₂ (g) | Inference (s/vehicle) |
+|---|---|---|---|---|---|
+| Greedy (baseline) | 221.87 | 12,259 | 34.27 | 85,049 | 0.018 |
+| Classical ACO | 186.25 ± 1.4 | 10,768 ± 85 | 27.87 ± 0.4 | 69,117 ± 950 | 0.653 ± 0.012 |
+| **DeepACO (ours)** | **183.15 ± 1.9** | **10,240 ± 92** | **26.50 ± 0.5** | **65,420 ± 1,100** | **0.606 ± 0.008** |
+
+- **23.0% less CO₂** than the greedy baseline, and **5.3% less** than tuned classical ACO
+- **75% fewer iterations** to converge (25 vs 100), since the learned heuristic skips blind exploration
+- **7.2% lower** per-vehicle inference latency than classical ACO
+- Improvement over classical ACO is statistically significant (Wilcoxon signed-rank, p < 0.05)
+
+![Static greedy route (red) vs DeepACO route (green)](route_comparison.png)
+
+---
+
+## 🚀 Getting Started
+
+**Requirements:** Python 3.10+ (tested on 3.14). The T-Drive dataset is already included in `release/taxi_log_2008_by_id/`.
+
+```bash
+git clone https://github.com/psp2535/BTP-Project.git
+cd BTP-Project
+
+python -m venv .venv
+# Windows: .venv\Scripts\activate    macOS/Linux: source .venv/bin/activate
+pip install -r requirements.txt
+```
+
+### Run the full pipeline
+
+```bash
+python main.py --step all --num-taxis 50      # use -1 for all 10,357 taxis
+```
+
+Processed data goes to `data/processed/`, results and plots to `outputs/`. A 50-taxi run takes about 2 minutes on a laptop CPU; 1,000+ taxis can take an hour or more.
+
+### Run a single step
+
+`main.py --step <name>` runs one stage of the 11-step pipeline:
+
+| # | Step | What it does |
+|:-:|---|---|
+| 1 | `preprocess` | Clean GPS logs, split into trips, compute speed/acceleration and fuel/CO₂ |
+| 2 | `congestion` | Label each grid cell's hourly congestion level |
+| 3 | `graph` | Build the 30×30 grid transition graph |
+| 4 | `fleet` | Generate a synthetic multi-depot vehicle fleet |
+| 5 | `gnn_prep` | Prepare graph tensors for PyTorch |
+| 6 | `gnn_embed` | Train the GCN and export 64-dim node embeddings |
+| 7 | `greedy_route` | Greedy baseline routing |
+| 8 | `tcfmu` | Train the XGBoost congestion forecaster |
+| 9 | `route_opt` | Time-dependent Dijkstra routing |
+| 10 | `aco_route` | Classical ACO routing |
+| 11 | `deep_aco` | Train DeepACO and compare all algorithms |
+
+Later steps read the outputs of earlier ones, so run `--step all` once before running steps individually.
+
+### Interactive dashboard
+
+```bash
+streamlit run interactive_simulation.py
+```
+
+Explore how vehicle type, payload and speed change fuel use and CO₂ for each algorithm, using the results in `outputs/deep_aco_comparison.csv`.
+
+### Verify
+
+Each `verify_*.py` script runs part of the pipeline and checks its outputs:
+
+```bash
+python verify_pipeline.py          # quick: 5 taxis, all steps
+python verify_tcfmu.py             # XGBoost forecaster
+python verify_aco.py               # classical ACO (300 taxis)
+python verify_deep_aco.py          # DeepACO (1000 taxis — slow, an hour or more on CPU)
+python verify_paper_integrity.py   # LaTeX labels, refs and citations
+```
 
 ---
 
 ## 📁 Repository Structure
 
 ```
-T-drive Taxi Trajectories/
-├── config/
-│   └── default_config.yaml     # Bounding boxes, thresholds, grid sizes, vehicle parameters
-├── data/
-│   ├── raw/                    # Data directory for raw T-Drive .txt files
-│   └── processed/              # Processed grid statistics, clean trajectories, trip segments
-├── notebooks/
-│   ├── 01_data_exploration.ipynb  # Basic trajectory cleaning and stats exploration
-│   └── 02_grid_analysis.ipynb     # Spatial grid binning and congestion analysis
+BTP-Project/
+├── main.py                      # 11-step pipeline entry point
+├── config/default_config.yaml   # Bounding box, grid size, thresholds, vehicle parameters
 ├── src/
-│   ├── __init__.py
-│   ├── preprocessing/
-│   │   ├── __init__.py
-│   │   ├── cleaning.py         # Parsing raw logs, geospatial bounds, speed threshold filters
-│   │   └── segmentation.py     # Splitting trajectories into individual trips
-│   ├── features/
-│   │   ├── __init__.py
-│   │   ├── spatial_grid.py     # Map coordinates to NxM grids, aggregate speeds per cell
-│   │   ├── metrics.py          # Delta distance, delta time, velocity, and emissions calculation
-│   │   └── vehicle.py          # Generator for synthetic multi-depot fleet details & capacity metadata
-│   ├── graph/
-│   │   ├── __init__.py
-│   │   └── grid_graph.py       # Construct spatial cell nodes and transition edges
-│   └── utils/
-│       ├── __init__.py
-│       └── helpers.py          # Haversine distance, YAML config loader, logging setup
-├── outputs/                    # Output directory for logs, grid speed matrices, and visualizations
-├── main.py                     # Entry point for baseline processing pipeline
-├── requirements.txt            # Minimal dependencies (numpy, pandas, matplotlib, pyyaml, tqdm)
-└── README.md                   # Instructions for data setup, pipeline stages, and reproduction
+│   ├── preprocessing/           # GPS cleaning and trip segmentation
+│   ├── features/                # Kinematics, fuel/CO₂ model, spatial grid, synthetic fleet
+│   ├── graph/                   # Grid transition graph and GNN features
+│   ├── models/                  # GNN, TCFMu (XGBoost), greedy, Dijkstra, ACO, DeepACO
+│   └── utils/                   # Helpers and visualisation
+├── interactive_simulation.py    # Streamlit dashboard
+├── verify_*.py                  # Verification scripts
+├── notebooks/                   # Data exploration and grid analysis
+├── research/                    # Extra experiments (scalability, sensitivity), review notes
+├── IM-VRM_Paper.tex             # Project paper (IEEE format)
+├── generate_*.py, *.png         # Architecture diagrams and figures
+├── release/taxi_log_2008_by_id/ # Microsoft T-Drive dataset
+└── outputs/                     # Generated results
 ```
+
+<details>
+<summary><b>📖 Model details: kinematics, fuel model and congestion labels</b></summary>
+
+### Kinematics
+For consecutive GPS points, distance uses the Haversine formula (R = 6,371 km), speed is `v = Δd / Δt`, and acceleration is `a = Δv / Δt`. Points implying speeds above 120 km/h are dropped as GPS errors, and a gap of over 20 minutes starts a new trip.
+
+### Green fuel and emission model
+- **Payload correction:** `F_adj = F_base × (1 + λ_load × payload_kg / 100)`
+- **Speed efficiency multiplier η(v)**, U-shaped: 2.0 below 10 km/h (crawl) · 1.4 for 10–30 · **1.0 for 30–60 (optimal)** · 1.25 for 60–90 · 1.6 above 90 (drag)
+- **Fuel per step (L):** `F_adj / 100 × distance_km × η(v)`; idling burns a fixed rate (1.2 L/h light, 3.5 L/h heavy)
+- **CO₂ (g):** `fuel × CO₂ per litre` (2,300 g/L light-duty, 2,600 g/L heavy-duty)
+
+### Congestion labels
+Beijing is split into a 30×30 grid. Each cell's free-flow speed is the 90th percentile of its observed speeds, and its hourly congestion ratio is `R = V_avg(h) / V_ff`:
+- **Level 0 — FreeFlow:** R ≥ 0.7
+- **Level 1 — Moderate:** 0.4 ≤ R < 0.7
+- **Level 2 — Congested:** R < 0.4
+
+### Transition graph
+Nodes are visited grid cells; a directed edge links two cells when a taxi actually moves between them in consecutive GPS points, weighted by transition count and average speed.
+
+</details>
 
 ---
 
-## ⚙️ Setup and Installation
+## 📚 References
 
-1.  **Clone the workspace** and ensure Python 3.8+ is installed.
-2.  **Install dependencies:**
-    ```bash
-    pip install -r requirements.txt
-    ```
-3.  **Setup Dataset:**  
-    By default, the pipeline expects the raw T-Drive trajectory text files inside the directory specified in `config/default_config.yaml` (default: `release/taxi_log_2008_by_id`). Make sure the raw `.txt` files are located there.
-
----
-
-## 🚀 Running the Pipeline
-
-You can run the full pipeline or isolate specific stages using the `--step` argument.
-
-### 1. Run the Entire Preprocessing & Modeling Baseline
-Executes all processing, congestion labeling, graph transitions, and synthetic fleet generation for the default subset of 50 taxis:
-```bash
-python main.py --step all --num-taxis 50
-```
-
-### 2. Run Individual Steps
-*   **Step 1: Trajectory Cleaning, Trip Segmentation & Kinematic features**
-    ```bash
-    python main.py --step preprocess --num-taxis 50
-    ```
-    Outputs processed data to `data/processed/clean_trips.csv`.
-
-*   **Step 2: Calculate Grid-based Congestion Levels**
-    ```bash
-    python main.py --step congestion
-    ```
-    Outputs congestion profiles to `data/processed/grid_congestion_stats.csv`.
-
-*   **Step 3: Construct Grid transition topology**
-    ```bash
-    python main.py --step graph
-    ```
-    Outputs graph connectivity to `data/processed/graph_nodes.json` and `data/processed/graph_edges.csv`.
-
-*   **Step 4: Generate Synthetic Delivery Fleet Profiles**
-    ```bash
-    python main.py --step fleet
-    ```
-    Outputs depot coordinates and vehicle configurations to `data/processed/synthetic_fleet.json`.
-
----
-
-## 🧪 Pipeline Verification
-
-To guarantee correctness, run the programmatic test suite:
-```bash
-python verify_pipeline.py
-```
-This runs the pipeline on a small 5-taxi subset and automatically checks the output schema matching, row sanity, and directory structure.
+- **Base model:** *"An Intelligent Multi-Depot Vehicle Routing and Management Model for Smart Cities,"* IEEE Transactions on Intelligent Transportation Systems, Vol. 26, Issue 6, June 2025.
+- **Dataset:** [Microsoft T-Drive Taxi Trajectories](https://www.microsoft.com/en-us/research/publication/t-drive-trajectory-data-sample/) — one week of GPS data from 10,357 Beijing taxis.
