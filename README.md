@@ -32,8 +32,6 @@ Classical routing heuristics such as Ant Colony Optimization (ACO) steer by stat
 
 Routes are optimised for a **green logistics cost** combining distance, travel time, congestion, and a load- and speed-dependent fuel/CO₂ model.
 
-![IM-VRM system architecture](im_vrm_master_system_architecture.png)
-
 ---
 
 ## 📊 Results
