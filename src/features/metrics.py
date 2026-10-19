@@ -59,7 +59,11 @@ def calculate_kinematics(df):
     """
     if df.empty or "trip_id" not in df.columns:
         return df
-    return df.groupby("trip_id", group_keys=False).apply(calculate_trip_kinematics)
+    # Iterate groups explicitly: pandas >= 3.0 drops the grouping column inside
+    # groupby().apply(), which would lose 'trip_id'.
+    return pd.concat(
+        [calculate_trip_kinematics(trip_df) for _, trip_df in df.groupby("trip_id")]
+    )
 
 def compute_fuel_and_emissions(speed_kmh, delta_dist_m, delta_time_sec, vehicle_config, payload_kg=0.0):
     """
